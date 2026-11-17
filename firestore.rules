@@ -1,0 +1,410 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // =========================================================================
+    // GLOBAL SAFETY NET (Default-Deny Catch-All)
+    // =========================================================================
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // =========================================================================
+    // PHASE 3: GLOBAL PRIMITIVES & RBAC HELPERS
+    // =========================================================================
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Bootstrapped Admin check (zero DB reads - safe inside list rules too)
+    function isBootstrappedAdmin() {
+      return isVerifiedUser() && request.auth.token.email == 'nivethithaadiyapatham@gmail.com';
+    }
+
+    // Full Admin check (explicitly looks up trusted /admins/{uid} document)
+    function isAdmin() {
+      return isBootstrappedAdmin() || (
+        isVerifiedUser() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // =========================================================================
+    // ENTITY VALIDATION BLUEPRINTS (No resource/existing/diff inside helpers)
+    // =========================================================================
+
+    function isValidAdminGrant(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'grantedBy', 'createdAt']) &&
+        data.keys().hasOnly(['uid', 'email', 'grantedBy', 'createdAt']) &&
+        data.uid is string && data.uid == userId && isValidId(data.uid) &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 254 &&
+        data.grantedBy is string && data.grantedBy == request.auth.uid && isValidId(data.grantedBy) &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll(['uid', 'name', 'email', 'role', 'createdAt', 'lastLogin']) &&
+        data.keys().hasOnly(['uid', 'name', 'email', 'role', 'avatar', 'createdAt', 'lastLogin']) &&
+        data.uid is string && data.uid == userId && isValidId(data.uid) &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 254 &&
+        data.role is string && data.role in ['operator', 'inspector', 'admin'] &&
+        (!('avatar' in data) || (data.avatar is string && data.avatar.size() <= 512)) &&
+        data.createdAt is timestamp &&
+        data.lastLogin is timestamp;
+    }
+
+    function isValidComponentMap(compMap) {
+      return compMap is map &&
+        compMap.size() >= 0 &&
+        compMap.size() <= 4 &&
+        compMap.keys().hasOnly(['Bearing', 'Bolt', 'Gear', 'Nut']) &&
+        (!('Bearing' in compMap) || (compMap.Bearing is int && compMap.Bearing >= 0 && compMap.Bearing <= 10000)) &&
+        (!('Bolt' in compMap) || (compMap.Bolt is int && compMap.Bolt >= 0 && compMap.Bolt <= 10000)) &&
+        (!('Gear' in compMap) || (compMap.Gear is int && compMap.Gear >= 0 && compMap.Gear <= 10000)) &&
+        (!('Nut' in compMap) || (compMap.Nut is int && compMap.Nut >= 0 && compMap.Nut <= 10000));
+    }
+
+    function isValidOrder(data, orderDocId) {
+      return data.keys().hasAll([
+          'id', 'order_id', 'product_name', 'customer_reference',
+          'expected_components', 'status', 'created_at', 'updated_at',
+          'inspections_count', 'createdBy', 'is_demo'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'order_id', 'product_name', 'customer_reference',
+          'expected_components', 'status', 'created_at', 'updated_at',
+          'inspections_count', 'last_inspection_id', 'createdBy', 'is_demo'
+        ]) &&
+        data.id is string && data.id == orderDocId && isValidId(data.id) &&
+        data.order_id is string && data.order_id.size() >= 2 && data.order_id.size() <= 64 &&
+        data.order_id.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.product_name is string && data.product_name.size() >= 1 && data.product_name.size() <= 200 &&
+        data.customer_reference is string && data.customer_reference.size() >= 1 && data.customer_reference.size() <= 200 &&
+        isValidComponentMap(data.expected_components) &&
+        data.expected_components.size() >= 1 &&
+        data.status is string && data.status in ['pending', 'in_inspection', 'passed', 'failed', 'needs_review'] &&
+        data.created_at is timestamp &&
+        data.updated_at is timestamp &&
+        data.inspections_count is int && data.inspections_count >= 0 && data.inspections_count <= 100000 &&
+        (!('last_inspection_id' in data) || (
+          data.last_inspection_id is string &&
+          data.last_inspection_id.size() >= 2 &&
+          data.last_inspection_id.size() <= 128 &&
+          data.last_inspection_id.matches('^[a-zA-Z0-9_\\-]+$')
+        )) &&
+        data.createdBy is string && isValidId(data.createdBy) &&
+        data.is_demo is bool;
+    }
+
+    function isValidSignoff(s) {
+      return s is map &&
+        s.keys().hasAll(['approved_by', 'approved_by_uid', 'approved_at', 'dispatch_authorization_code']) &&
+        s.keys().hasOnly(['approved_by', 'approved_by_uid', 'approved_at', 'dispatch_authorization_code']) &&
+        s.approved_by is string && s.approved_by.size() >= 1 && s.approved_by.size() <= 120 &&
+        s.approved_by_uid is string && s.approved_by_uid == request.auth.uid && isValidId(s.approved_by_uid) &&
+        s.approved_at is timestamp &&
+        s.approved_at == request.time &&
+        s.dispatch_authorization_code is string &&
+        s.dispatch_authorization_code.size() >= 4 &&
+        s.dispatch_authorization_code.size() <= 64;
+    }
+
+    function isValidVerificationResult(vr) {
+      return vr is map &&
+        vr.keys().hasAll([
+          'overall_status', 'component_results', 'missing_components',
+          'extra_components', 'uncertainty_flags', 'corrective_actions',
+          'can_approve', 'confidence_threshold_applied'
+        ]) &&
+        vr.keys().hasOnly([
+          'overall_status', 'component_results', 'missing_components',
+          'extra_components', 'uncertainty_flags', 'corrective_actions',
+          'can_approve', 'approval_block_reason', 'confidence_threshold_applied'
+        ]) &&
+        vr.overall_status is string && vr.overall_status in ['PASS', 'FAIL', 'NEEDS_REVIEW'] &&
+        vr.component_results is list && vr.component_results.size() <= 10 &&
+        (vr.component_results.size() == 0 || vr.component_results[0] is map) &&
+        vr.missing_components is map && vr.missing_components.size() <= 10 &&
+        vr.extra_components is map && vr.extra_components.size() <= 10 &&
+        vr.uncertainty_flags is list && vr.uncertainty_flags.size() <= 20 &&
+        (vr.uncertainty_flags.size() == 0 || (vr.uncertainty_flags[0] is string && vr.uncertainty_flags[0].size() <= 300)) &&
+        vr.corrective_actions is list && vr.corrective_actions.size() <= 20 &&
+        (vr.corrective_actions.size() == 0 || (vr.corrective_actions[0] is string && vr.corrective_actions[0].size() <= 400)) &&
+        vr.can_approve is bool &&
+        (!('approval_block_reason' in vr) || (vr.approval_block_reason is string && vr.approval_block_reason.size() <= 400)) &&
+        vr.confidence_threshold_applied is number &&
+        vr.confidence_threshold_applied >= 0.0 && vr.confidence_threshold_applied <= 1.0;
+    }
+
+    function isValidInspection(data, inspDocId) {
+      return data.keys().hasAll([
+          'id', 'inspection_id', 'order_id', 'order_doc_id', 'product_name',
+          'original_image_path', 'annotated_image_path',
+          'expected_components', 'detected_components', 'detections',
+          'verification_result', 'inspection_status',
+          'inspected_by', 'inspected_by_name', 'created_at', 'updated_at', 'is_demo'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'inspection_id', 'order_id', 'order_doc_id', 'product_name',
+          'original_image_path', 'annotated_image_path',
+          'expected_components', 'detected_components', 'detections',
+          'verification_result', 'inspection_status',
+          'inspected_by', 'inspected_by_name', 'created_at', 'updated_at',
+          'parent_inspection_id', 'reinspection_notes', 'image_quality',
+          'digital_signoff', 'is_demo'
+        ]) &&
+        data.id is string && data.id == inspDocId && isValidId(data.id) &&
+        data.inspection_id is string && data.inspection_id.size() >= 2 && data.inspection_id.size() <= 128 &&
+        data.inspection_id.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.order_id is string && data.order_id.size() >= 2 && data.order_id.size() <= 64 &&
+        data.order_id.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.order_doc_id is string && isValidId(data.order_doc_id) &&
+        data.product_name is string && data.product_name.size() >= 1 && data.product_name.size() <= 200 &&
+        data.original_image_path is string && data.original_image_path.size() >= 1 && data.original_image_path.size() <= 512 &&
+        !data.original_image_path.matches('^data:.*') &&
+        data.annotated_image_path is string && data.annotated_image_path.size() >= 1 && data.annotated_image_path.size() <= 512 &&
+        !data.annotated_image_path.matches('^data:.*') &&
+        isValidComponentMap(data.expected_components) &&
+        isValidComponentMap(data.detected_components) &&
+        data.detections is list && data.detections.size() <= 200 &&
+        (data.detections.size() == 0 || data.detections[0] is map) &&
+        isValidVerificationResult(data.verification_result) &&
+        data.inspection_status is string && data.inspection_status in ['PASS', 'FAIL', 'NEEDS_REVIEW'] &&
+        data.inspection_status == data.verification_result.overall_status &&
+        data.inspected_by is string && isValidId(data.inspected_by) &&
+        data.inspected_by_name is string && data.inspected_by_name.size() >= 1 && data.inspected_by_name.size() <= 120 &&
+        data.created_at is timestamp &&
+        data.updated_at is timestamp &&
+        (!('parent_inspection_id' in data) || data.parent_inspection_id == null || (
+          data.parent_inspection_id is string && data.parent_inspection_id.size() <= 128
+        )) &&
+        (!('reinspection_notes' in data) || (data.reinspection_notes is string && data.reinspection_notes.size() <= 500)) &&
+        (!('image_quality' in data) || data.image_quality is map) &&
+        (!('digital_signoff' in data) || (data.inspection_status == 'PASS' && isValidSignoff(data.digital_signoff))) &&
+        data.is_demo is bool;
+    }
+
+    function isValidComponentDefinition(data, compId) {
+      return data.keys().hasAll(['id', 'component_name', 'model_class_name', 'description', 'active', 'color']) &&
+        data.keys().hasOnly(['id', 'component_name', 'model_class_name', 'description', 'active', 'color']) &&
+        data.id is string && data.id == compId && isValidId(data.id) &&
+        data.component_name is string && data.component_name.size() >= 1 && data.component_name.size() <= 64 &&
+        data.model_class_name is string && data.model_class_name in ['Bearing', 'Bolt', 'Gear', 'Nut'] &&
+        data.description is string && data.description.size() <= 300 &&
+        data.active is bool &&
+        data.color is string && data.color.size() <= 16 && data.color.matches('^#[0-9A-Fa-f]{6}$');
+    }
+
+    function isValidSystemSettings(data) {
+      return data.keys().hasAll([
+          'confidence_threshold', 'iou_threshold', 'strict_approval_only',
+          'model_path', 'min_image_resolution', 'updated_at', 'updated_by'
+        ]) &&
+        data.keys().hasOnly([
+          'confidence_threshold', 'iou_threshold', 'strict_approval_only',
+          'model_path', 'min_image_resolution', 'updated_at', 'updated_by'
+        ]) &&
+        data.confidence_threshold is number && data.confidence_threshold >= 0.1 && data.confidence_threshold <= 0.99 &&
+        data.iou_threshold is number && data.iou_threshold >= 0.1 && data.iou_threshold <= 0.95 &&
+        data.strict_approval_only is bool &&
+        data.model_path is string && data.model_path.size() >= 1 && data.model_path.size() <= 256 &&
+        data.min_image_resolution is int && data.min_image_resolution >= 100 && data.min_image_resolution <= 4096 &&
+        data.updated_at is timestamp &&
+        data.updated_by is string && data.updated_by == request.auth.uid && isValidId(data.updated_by);
+    }
+
+    // =========================================================================
+    // COLLECTION MATCH BLOCKS
+    // =========================================================================
+
+    // 1. Trusted Admin Grants
+    match /admins/{userId} {
+      allow get: if isValidId(userId) && isVerifiedUser() && (isOwner(userId) || isAdmin());
+      allow list: if isBootstrappedAdmin();
+      allow create: if isValidId(userId) &&
+        isAdmin() &&
+        isValidAdminGrant(incoming(), userId) &&
+        incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isValidId(userId) && isAdmin() && userId != request.auth.uid;
+    }
+
+    // 2. Station Personnel Profiles (Strict PII Isolation & Anti-Privilege-Escalation)
+    match /users/{userId} {
+      allow get: if isValidId(userId) && isVerifiedUser() && (isOwner(userId) || isAdmin());
+      // No get()/exists() inside allow list; non-admins can only query their own uid
+      allow list: if isVerifiedUser() && (isBootstrappedAdmin() || existing().uid == request.auth.uid);
+
+      allow create: if isValidId(userId) &&
+        isVerifiedUser() &&
+        isValidUserProfile(incoming(), userId) &&
+        incoming().createdAt == request.time &&
+        incoming().lastLogin == request.time &&
+        (
+          (isOwner(userId) && incoming().role == 'operator' && incoming().email == request.auth.token.email) ||
+          (isOwner(userId) && isBootstrappedAdmin() && incoming().role == 'admin' && incoming().email == request.auth.token.email) ||
+          isAdmin()
+        );
+
+      allow update: if isValidId(userId) &&
+        isVerifiedUser() &&
+        isValidUserProfile(incoming(), userId) &&
+        incoming().uid == existing().uid &&
+        incoming().email == existing().email &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().lastLogin == request.time &&
+        (
+          // Action 1: Owner updating own display info / login timestamp (role immutable)
+          (
+            isOwner(userId) &&
+            incoming().role == existing().role &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['name', 'avatar', 'lastLogin'])
+          ) ||
+          // Action 2: Admin managing station personnel role/details
+          (
+            isAdmin() &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['name', 'role', 'avatar', 'lastLogin'])
+          )
+        );
+
+      allow delete: if isValidId(userId) && isAdmin() && userId != request.auth.uid;
+    }
+
+    // 3. Packing Orders
+    match /orders/{orderId} {
+      allow get: if isValidId(orderId) && isVerifiedUser() && (existing().createdBy == request.auth.uid || isAdmin());
+      allow list: if isVerifiedUser() && (existing().createdBy == request.auth.uid || isBootstrappedAdmin());
+
+      allow create: if isValidId(orderId) &&
+        isVerifiedUser() &&
+        isValidOrder(incoming(), orderId) &&
+        incoming().createdBy == request.auth.uid &&
+        incoming().status == 'pending' &&
+        incoming().inspections_count == 0 &&
+        incoming().created_at == request.time &&
+        incoming().updated_at == request.time;
+
+      allow update: if isValidId(orderId) &&
+        isVerifiedUser() &&
+        isValidOrder(incoming(), orderId) &&
+        incoming().id == existing().id &&
+        incoming().order_id == existing().order_id &&
+        incoming().createdBy == existing().createdBy &&
+        incoming().created_at == existing().created_at &&
+        incoming().updated_at == request.time &&
+        (
+          // Action 1: Atomic Inspection Sync (increment count & update verification state)
+          (
+            (existing().createdBy == request.auth.uid || isAdmin()) &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'status', 'inspections_count', 'last_inspection_id', 'updated_at'
+            ]) &&
+            incoming().inspections_count == existing().inspections_count + 1
+          ) ||
+          // Action 2: Order Bill-of-Materials / Metadata Edit while still pending
+          (
+            existing().createdBy == request.auth.uid &&
+            existing().status == 'pending' &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'product_name', 'customer_reference', 'expected_components', 'status', 'updated_at'
+            ])
+          ) ||
+          // Action 3: Admin Override
+          isAdmin()
+        );
+
+      allow delete: if isValidId(orderId) && (isAdmin() || (isVerifiedUser() && existing().createdBy == request.auth.uid && existing().is_demo == true));
+    }
+
+    // 4. AI Packing Inspections (Immutable Audit Trail + Fail-Safe Dispatch Approval)
+    match /inspections/{inspectionId} {
+      allow get: if isValidId(inspectionId) && isVerifiedUser() && (existing().inspected_by == request.auth.uid || isAdmin());
+      allow list: if isVerifiedUser() && (existing().inspected_by == request.auth.uid || isBootstrappedAdmin());
+
+      allow create: if isValidId(inspectionId) &&
+        isVerifiedUser() &&
+        isValidInspection(incoming(), inspectionId) &&
+        incoming().inspected_by == request.auth.uid &&
+        incoming().created_at == request.time &&
+        incoming().updated_at == request.time &&
+        exists(/databases/$(database)/documents/orders/$(incoming().order_doc_id)) &&
+        (
+          get(/databases/$(database)/documents/orders/$(incoming().order_doc_id)).data.createdBy == request.auth.uid ||
+          isAdmin()
+        ) &&
+        getAfter(/databases/$(database)/documents/orders/$(incoming().order_doc_id)).data.last_inspection_id == incoming().inspection_id;
+
+      allow update: if isValidId(inspectionId) &&
+        isVerifiedUser() &&
+        isValidInspection(incoming(), inspectionId) &&
+        incoming().id == existing().id &&
+        incoming().inspection_id == existing().inspection_id &&
+        incoming().order_id == existing().order_id &&
+        incoming().order_doc_id == existing().order_doc_id &&
+        incoming().inspected_by == existing().inspected_by &&
+        incoming().created_at == existing().created_at &&
+        incoming().updated_at == request.time &&
+        (
+          // Action 1: Fail-Safe Dispatch Sign-Off (ONLY when status == PASS and not yet signed off)
+          (
+            (existing().inspected_by == request.auth.uid || isAdmin()) &&
+            existing().inspection_status == 'PASS' &&
+            !('digital_signoff' in existing()) &&
+            ('digital_signoff' in incoming()) &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['digital_signoff', 'updated_at'])
+          ) ||
+          // Action 2: Admin Correction Override
+          isAdmin()
+        );
+
+      allow delete: if isValidId(inspectionId) && (isAdmin() || (isVerifiedUser() && existing().inspected_by == request.auth.uid && existing().is_demo == true));
+    }
+
+    // 5. Mechanical Component Class Catalog
+    match /components/{componentId} {
+      allow get: if isValidId(componentId) && isVerifiedUser();
+      allow list: if isVerifiedUser() && existing().active == true;
+      allow create, update: if isValidId(componentId) && isAdmin() && isValidComponentDefinition(incoming(), componentId);
+      allow delete: if isValidId(componentId) && isAdmin();
+    }
+
+    // 6. Global System Settings
+    match /settings/{settingId} {
+      allow get: if isValidId(settingId) && isVerifiedUser();
+      allow list: if false;
+      allow create, update: if isValidId(settingId) &&
+        isAdmin() &&
+        isValidSystemSettings(incoming()) &&
+        incoming().updated_at == request.time;
+      allow delete: if false;
+    }
+
+    // 7. Startup Connectivity Probe
+    match /test/{docId} {
+      allow get: if isValidId(docId) && docId == 'connection' && isSignedIn();
+      allow list, write: if false;
+    }
+  }
+}

@@ -1,0 +1,437 @@
+{
+  "entities": {
+    "AdminGrant": {
+      "title": "AdminGrant",
+      "description": "Trusted administrator role grant record.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the administrator.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "Verified email address of the administrator.",
+          "maxLength": 254
+        },
+        "grantedBy": {
+          "type": "string",
+          "description": "UID of the admin who granted this role.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when admin access was granted."
+        }
+      },
+      "required": ["uid", "email", "grantedBy", "createdAt"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated PackSure AI operator, quality inspector, or administrator profile.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "description": "Display name of the station personnel.",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "Verified work email address (PII).",
+          "maxLength": 254
+        },
+        "role": {
+          "type": "string",
+          "enum": ["operator", "inspector", "admin"],
+          "description": "Station RBAC role."
+        },
+        "avatar": {
+          "type": "string",
+          "description": "Optional profile avatar URL.",
+          "maxLength": 512
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "lastLogin": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of latest login."
+        }
+      },
+      "required": ["uid", "name", "email", "role", "createdAt", "lastLogin"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Industrial packing order with expected mechanical bill of materials.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Document identifier.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "order_id": {
+          "type": "string",
+          "description": "Human-readable industrial order code.",
+          "minLength": 2,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "product_name": {
+          "type": "string",
+          "description": "Assembly or kit name.",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "customer_reference": {
+          "type": "string",
+          "description": "Customer PO or shipment reference.",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "expected_components": {
+          "type": "object",
+          "description": "Map of mechanical component class names to required integer counts."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "in_inspection", "passed", "failed", "needs_review"],
+          "description": "Current order verification state."
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server last update timestamp."
+        },
+        "inspections_count": {
+          "type": "integer",
+          "description": "Total number of inspections performed for this order."
+        },
+        "last_inspection_id": {
+          "type": "string",
+          "description": "Identifier of the most recent inspection.",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdBy": {
+          "type": "string",
+          "description": "UID of the user who created the order.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "is_demo": {
+          "type": "boolean",
+          "description": "Indicates seeded demonstration record."
+        }
+      },
+      "required": [
+        "id",
+        "order_id",
+        "product_name",
+        "customer_reference",
+        "expected_components",
+        "status",
+        "created_at",
+        "updated_at",
+        "inspections_count",
+        "createdBy",
+        "is_demo"
+      ]
+    },
+    "Inspection": {
+      "title": "Inspection",
+      "description": "Immutable AI packing inspection log and fail-safe dispatch approval record.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Document identifier.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "inspection_id": {
+          "type": "string",
+          "description": "Formatted inspection audit identifier.",
+          "minLength": 2,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "order_id": {
+          "type": "string",
+          "description": "Parent order code.",
+          "minLength": 2,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "order_doc_id": {
+          "type": "string",
+          "description": "Firestore document ID of the parent order.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "product_name": {
+          "type": "string",
+          "description": "Product name copied from the order.",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "original_image_path": {
+          "type": "string",
+          "description": "Server path or URL to the captured raw tray image (no base64).",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "annotated_image_path": {
+          "type": "string",
+          "description": "Server path or URL to the YOLO11 bounding-box annotated image (no base64).",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "expected_components": {
+          "type": "object",
+          "description": "Expected component counts."
+        },
+        "detected_components": {
+          "type": "object",
+          "description": "Detected component counts from YOLO11 inference."
+        },
+        "detections": {
+          "type": "array",
+          "description": "Bounded list of YOLO11 bounding-box detections."
+        },
+        "verification_result": {
+          "type": "object",
+          "description": "Deterministic verification analysis and corrective guidance."
+        },
+        "inspection_status": {
+          "type": "string",
+          "enum": ["PASS", "FAIL", "NEEDS_REVIEW"],
+          "description": "Final verification decision."
+        },
+        "inspected_by": {
+          "type": "string",
+          "description": "UID of the user who executed the inspection.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "inspected_by_name": {
+          "type": "string",
+          "description": "Display name of the inspector.",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of inspection creation."
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of latest update."
+        },
+        "parent_inspection_id": {
+          "type": "string",
+          "description": "Optional parent inspection ID for reinspections.",
+          "maxLength": 128
+        },
+        "reinspection_notes": {
+          "type": "string",
+          "description": "Optional operator notes on corrected parts.",
+          "maxLength": 500
+        },
+        "digital_signoff": {
+          "type": "object",
+          "description": "Dispatch authorization record (permitted only on PASS inspections)."
+        },
+        "is_demo": {
+          "type": "boolean",
+          "description": "Indicates seeded demonstration record."
+        }
+      },
+      "required": [
+        "id",
+        "inspection_id",
+        "order_id",
+        "order_doc_id",
+        "product_name",
+        "original_image_path",
+        "annotated_image_path",
+        "expected_components",
+        "detected_components",
+        "detections",
+        "verification_result",
+        "inspection_status",
+        "inspected_by",
+        "inspected_by_name",
+        "created_at",
+        "updated_at",
+        "is_demo"
+      ]
+    },
+    "ComponentDefinition": {
+      "title": "ComponentDefinition",
+      "description": "Mechanical part class definition aligned with custom YOLO11 weights.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Component document ID.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "component_name": {
+          "type": "string",
+          "description": "Display name of the mechanical component.",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "model_class_name": {
+          "type": "string",
+          "enum": ["Bearing", "Bolt", "Gear", "Nut"],
+          "description": "Trained YOLO11 class label."
+        },
+        "description": {
+          "type": "string",
+          "description": "Industrial specification summary.",
+          "maxLength": 300
+        },
+        "active": {
+          "type": "boolean",
+          "description": "Whether the class is active."
+        },
+        "color": {
+          "type": "string",
+          "description": "Hex color for bounding-box rendering.",
+          "maxLength": 16,
+          "pattern": "^#[0-9A-Fa-f]{6}$"
+        }
+      },
+      "required": ["id", "component_name", "model_class_name", "description", "active", "color"]
+    },
+    "SystemSettings": {
+      "title": "SystemSettings",
+      "description": "Global PackSure AI verification thresholds and model path configuration.",
+      "type": "object",
+      "properties": {
+        "confidence_threshold": {
+          "type": "number",
+          "description": "Minimum detection confidence threshold (0.1 to 0.99)."
+        },
+        "iou_threshold": {
+          "type": "number",
+          "description": "Non-Max Suppression IoU threshold (0.1 to 0.95)."
+        },
+        "strict_approval_only": {
+          "type": "boolean",
+          "description": "Enforce fail-safe block on non-PASS dispatch approvals."
+        },
+        "model_path": {
+          "type": "string",
+          "description": "Configured model path on the inference backend.",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "min_image_resolution": {
+          "type": "integer",
+          "description": "Minimum image width/height in pixels."
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last update."
+        },
+        "updated_by": {
+          "type": "string",
+          "description": "UID of admin who last updated settings.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        }
+      },
+      "required": [
+        "confidence_threshold",
+        "iou_threshold",
+        "strict_approval_only",
+        "model_path",
+        "min_image_resolution",
+        "updated_at",
+        "updated_by"
+      ]
+    },
+    "ConnectionCheck": {
+      "title": "ConnectionCheck",
+      "description": "Firestore connectivity verification marker.",
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean",
+          "description": "Connectivity marker."
+        }
+      },
+      "required": ["ok"]
+    }
+  },
+  "firestore": {
+    "/admins/{userId}": {
+      "schema": { "$ref": "#/entities/AdminGrant" },
+      "description": "Trusted administrator grant documents."
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Station personnel profiles with PII isolated to owner and admins."
+    },
+    "/orders/{orderId}": {
+      "schema": { "$ref": "#/entities/Order" },
+      "description": "Packing orders and expected mechanical bills of materials."
+    },
+    "/inspections/{inspectionId}": {
+      "schema": { "$ref": "#/entities/Inspection" },
+      "description": "Immutable AI packing inspection logs and dispatch sign-offs."
+    },
+    "/components/{componentId}": {
+      "schema": { "$ref": "#/entities/ComponentDefinition" },
+      "description": "Custom YOLO11 mechanical component class catalog."
+    },
+    "/settings/{settingId}": {
+      "schema": { "$ref": "#/entities/SystemSettings" },
+      "description": "Global verification engine thresholds and strict mode configuration."
+    },
+    "/test/{docId}": {
+      "schema": { "$ref": "#/entities/ConnectionCheck" },
+      "description": "Startup Firestore server connectivity check."
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "PackSure AI",
+  "description": "Intelligent AI-Powered Packing Verification System with custom YOLO mechanical component detection, order verification, and digital traceability.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
